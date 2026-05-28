@@ -1,0 +1,33 @@
+from datetime import datetime, timedelta
+from passlib.context import CryptContext
+from jose import jwt
+
+# 1. Password Hashing Setup
+# We use bcrypt. It mathematically scrambles a password so even if our database is hacked,
+# the hackers can't read the passwords.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# 2. JWT Setup
+# NEVER put your real secret key in code for production (use .env files). 
+# This is a temporary key for local development.
+SECRET_KEY = "super-secret-quant-key-do-not-share"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Users will be logged out automatically after 30 mins
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict) -> str:
+    """Creates the JWT Token containing the user's email."""
+    to_encode = data.copy()
+    
+    # Set the expiration time
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    
+    # Mathematically sign the token using our SECRET_KEY
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
