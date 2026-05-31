@@ -1,12 +1,10 @@
 import os
-
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal, AssetMetric
 from quant_engine import calculate_asset_metrics
 from pydantic import BaseModel
 from database import PortfolioItem
-from recommender import generate_wealth_plan
 from auth import get_password_hash, verify_password, create_access_token
 from database import User
 from fastapi.security import OAuth2PasswordRequestForm
@@ -15,17 +13,25 @@ from jose import JWTError, jwt
 from auth import SECRET_KEY, ALGORITHM
 from scheduler import job_scheduler
 from fastapi.middleware.cors import CORSMiddleware
+import requests
+import yfinance as yf
+from recommender import generate_scoreboard
+from analysis_engine import generate_stock_comparison
+
+class AnalysisRequest(BaseModel):
+    tickers: list[str]  # e.g., ["AAPL", "MSFT"]
+    period: str = "1y"  # Default to 1 year
 
 class PortfolioItemCreate(BaseModel):
     ticker: str
     quantity: float
     average_buy_price: float
+    asset_type: str = "STOCK"
 
-class WealthPlanRequest(BaseModel):
+class AdvisorRequest(BaseModel):
     amount: float
+    time_period: str # e.g., "5", "10", or "none"
     is_monthly: bool
-    time_period_years: int
-    risk_profile: str  # "Conservative" or "Aggressive"
 
 class UserCreate(BaseModel):
     email: str
@@ -131,20 +137,27 @@ def get_metrics(ticker_symbol: str, db: Session = Depends(get_db)):
 
 @app.post("/api/portfolio")
 def add_portfolio_item(item: PortfolioItemCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    
+    # 1. VALIDATION: Only check Yahoo Finance if it's a Market Asset
+    if item.asset_type in ["STOCK", "MF", "ETF"]:
+        history = yf.Ticker(item.ticker).history(period="1d")
+        if history.empty:
+            raise HTTPException(status_code=400, detail=f"Asset '{item.ticker}' has no active price data.")
+
+    # 2. Safe to save!
     new_item = PortfolioItem(
-        owner_id=current_user.id,  
-        ticker=item.ticker.upper(),
+        owner_id=current_user.id,
+        ticker=item.ticker,
         quantity=item.quantity,
-        average_buy_price=item.average_buy_price
+        average_buy_price=item.average_buy_price,
+        asset_type=item.asset_type # Save the type
     )
     
     db.add(new_item)
     db.commit()
     db.refresh(new_item)
     
-    return {"message": f"Successfully added {item.quantity} shares of {item.ticker}", "item_id": new_item.id}
-
-import yfinance as yf
+    return {"message": "Trade added successfully"}
 
 @app.get("/api/portfolio")
 def get_portfolio(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -158,21 +171,31 @@ def get_portfolio(current_user: User = Depends(get_current_user), db: Session = 
     total_portfolio_value = 0.0
     total_portfolio_cost = 0.0
     
-    for item in items:
-        cached_metric = db.query(AssetMetric).filter(AssetMetric.ticker == item.ticker).first()
 
-        if cached_metric and cached_metric.current_price:
-            current_price = cached_metric.current_price
-        else:
-            current_price = yf.Ticker(item.ticker).history(period="1d")['Close'].iloc[-1]
-        
+    for item in items:
+
+        if item.asset_type in ["FD", "RD"]:
+            current_price = item.average_buy_price
+            
+        else: 
+            cached_metric = db.query(AssetMetric).filter(AssetMetric.ticker == item.ticker).first()
+            if cached_metric and cached_metric.current_price:
+                current_price = cached_metric.current_price
+            else:
+                try:
+                    current_price = yf.Ticker(item.ticker).history(period="1d")['Close'].iloc[-1]
+                except IndexError:
+                    current_price = 0.0
+                    
         total_cost = item.quantity * item.average_buy_price
         current_value = item.quantity * current_price
+
+
         
         profit_loss = current_value - total_cost
         profit_loss_percent = (profit_loss / total_cost) * 100 if total_cost > 0 else 0.0
         
-        # FIX: Actually update the running totals!
+
         total_portfolio_value += current_value
         total_portfolio_cost += total_cost
         
@@ -186,7 +209,6 @@ def get_portfolio(current_user: User = Depends(get_current_user), db: Session = 
         
     total_pnl = total_portfolio_value - total_portfolio_cost
     
-    # FIX: Defensive programming to prevent ZeroDivisionError
     total_pnl_percent = (total_pnl / total_portfolio_cost) * 100 if total_portfolio_cost > 0 else 0.0
     
     return {
@@ -198,19 +220,13 @@ def get_portfolio(current_user: User = Depends(get_current_user), db: Session = 
         "holdings": portfolio_summary
     }
 
-@app.post("/api/plan")
-def get_wealth_plan(request: WealthPlanRequest):
+@app.post("/api/advisor")
+def get_investment_advice(request: AdvisorRequest):
     try:
-        # Pass the data from the API request directly into your engine
-        plan = generate_wealth_plan(
-            amount=request.amount,
-            is_monthly=request.is_monthly,
-            time_period_years=request.time_period_years,
-            risk_profile=request.risk_profile
-        )
-        return plan
+        # Pass the new field into the engine
+        scoreboard = generate_scoreboard(request.amount, request.time_period, request.is_monthly)
+        return scoreboard
     except Exception as e:
-        # If they pass a bad risk profile or something breaks, return a 400 error
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/register")
@@ -250,3 +266,39 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     
     # 4. Return it to the frontend!
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/search")
+def search_assets(q: str):
+    """Searches Yahoo Finance and returns a clean list of matching stocks."""
+    if not q or len(q) < 2:
+        return []
+        
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}"
+    headers = {'User-Agent': 'Mozilla/5.0'} 
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        results = []
+        for item in data.get('quotes', []):
+            # We only want real financial assets that have a symbol and a name
+            if 'symbol' in item and 'shortname' in item:
+                results.append({
+                    "symbol": item['symbol'],
+                    "name": item['shortname'],
+                    "exchange": item.get('exchDisp', 'Unknown')
+                })
+        return results[:5] # Return top 5 results to the frontend
+    return []
+
+@app.post("/api/analyze")
+def analyze_stocks(request: AnalysisRequest):
+    try:
+        # A safety check so users don't request 50 stocks at once and crash the server
+        if len(request.tickers) > 5:
+            raise HTTPException(status_code=400, detail="You can only compare up to 5 stocks at a time.")
+            
+        data = generate_stock_comparison(request.tickers, request.period)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

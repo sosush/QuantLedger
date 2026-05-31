@@ -8,7 +8,8 @@ export default function Dashboard() {
   // --- ALL STATE HOOKS MUST LIVE INSIDE THE FUNCTION ---
   const [portfolio, setPortfolio] = useState(null);
   const [loading, setLoading] = useState(true);
-  
+  const [assetType, setAssetType] = useState('STOCK');
+
   // Trade Form State
   const [ticker, setTicker] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -67,7 +68,8 @@ export default function Dashboard() {
   const handleBuy = async (e) => {
     e.preventDefault();
     try {
-      await portfolioAPI.buyStock(ticker, parseFloat(quantity), parseFloat(price));
+        await portfolioAPI.buyStock(ticker, parseFloat(quantity), parseFloat(price), assetType);
+
       setTicker(''); setQuantity(''); setPrice('');
       fetchPortfolio(); // Refresh pie chart
     } catch (error) {
@@ -92,7 +94,6 @@ export default function Dashboard() {
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>QuantLedger Dashboard</h1>
-        <button onClick={handleLogout} style={{ padding: '8px 16px', background: '#ff4d4f', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
       </div>
 
       <div style={{ display: 'flex', gap: '20px', margin: '20px 0' }}>
@@ -110,41 +111,41 @@ export default function Dashboard() {
       </div>
 
       <div style={{ display: 'flex', gap: '40px' }}>
-        <div style={{ flex: 1, padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
-          <h3>Log a Trade</h3>
+{/* --- ADD TRADE FORM --- */}
+<div style={{ flex: 1, padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
+          <h3>Log an Asset</h3>
           <form onSubmit={handleBuy} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             
-            {/* AUTOLOAD SEARCH WRAPPER */}
-            <div style={{ position: 'relative' }}>
-              <input 
-                type="text" 
-                placeholder="Search Company or Ticker (e.g., Tata)" 
-                value={ticker} 
-                onChange={handleSearchChange} 
-                required 
-                style={{ padding: '8px', width: '100%', boxSizing: 'border-box' }}
-              />
-              {isSearching && searchResults.length > 0 && (
-                <ul style={{ 
-                  position: 'absolute', top: '100%', left: 0, right: 0, 
-                  background: 'white', border: '1px solid #ccc', margin: 0, padding: 0, 
-                  listStyle: 'none', zIndex: 10, maxHeight: '200px', overflowY: 'auto' 
-                }}>
-                  {searchResults.map((result) => (
-                    <li 
-                      key={result.symbol} 
-                      onClick={() => handleSelectAsset(result.symbol)}
-                      style={{ padding: '10px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
-                    >
-                      <strong>{result.symbol}</strong> - {result.name} <span style={{fontSize: '0.8em', color: 'gray'}}>({result.exchange})</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <select value={assetType} onChange={(e) => setAssetType(e.target.value)} style={{ padding: '8px' }}>
+              <option value="STOCK">Stock / ETF</option>
+              <option value="MF">Mutual Fund</option>
+              <option value="FD">Fixed Deposit (FD)</option>
+              <option value="RD">Recurring Deposit (RD)</option>
+              <option value="GOLD">Physical/Digital Gold</option>
+            </select>
 
-            <input type="number" step="0.01" placeholder="Quantity" value={quantity} onChange={e => setQuantity(e.target.value)} required style={{ padding: '8px' }}/>
-            <input type="number" step="0.01" placeholder="Average Buy Price" value={price} onChange={e => setPrice(e.target.value)} required style={{ padding: '8px' }}/>
+            {/* If it's a Stock/MF, show Autocomplete. Otherwise, standard input! */}
+            {['STOCK', 'MF'].includes(assetType) ? (
+              <div style={{ position: 'relative' }}>
+                <input type="text" placeholder="Search Company (e.g., Tata)" value={ticker} onChange={handleSearchChange} required style={{ padding: '8px', width: '100%', boxSizing: 'border-box' }} />
+                {isSearching && searchResults.length > 0 && (
+                  <ul style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #ccc', margin: 0, padding: 0, listStyle: 'none', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
+                    {searchResults.map((result) => (
+                      <li key={result.symbol} onClick={() => handleSelectAsset(result.symbol)} style={{ padding: '10px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>
+                        <strong>{result.symbol}</strong> - {result.name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <input type="text" placeholder="Asset Name (e.g., SBI Fixed Deposit)" value={ticker} onChange={e => setTicker(e.target.value)} required style={{ padding: '8px' }}/>
+            )}
+
+            <input type="number" step="0.01" placeholder={['FD', 'RD'].includes(assetType) ? "Amount Invested (₹ or $)" : "Quantity"} value={quantity} onChange={e => setQuantity(e.target.value)} required style={{ padding: '8px' }}/>
+            
+            <input type="number" step="0.01" placeholder={['FD', 'RD'].includes(assetType) ? "Expected Interest Rate (%)" : "Average Buy Price"} value={price} onChange={e => setPrice(e.target.value)} required style={{ padding: '8px' }}/>
+            
             <button type="submit" style={{ padding: '10px', background: '#1890ff', color: 'white', border: 'none', cursor: 'pointer' }}>Add to Portfolio</button>
           </form>
         </div>

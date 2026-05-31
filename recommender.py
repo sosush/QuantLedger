@@ -1,84 +1,105 @@
-from quant_engine import calculate_asset_metrics
+def generate_scoreboard(amount: float, time_years: str, is_monthly: bool) -> dict:
+    years = 10 if time_years == "none" else int(time_years)
+    
+    # We build the dictionary with specific drill-down options!
+    categories = [
+        {
+            "id": "rd" if is_monthly else "fd",
+            "name": "Recurring Deposit (RD)" if is_monthly else "Fixed Deposit (FD)",
+            "description": "Safe, guaranteed returns by the bank. No market risk.",
+            "historical_return_percent": 7.0,
+            "risk_level": "Zero",
+            "minimum_years_recommended": 1,
+            # THE DRILL DOWN DATA:
+            "specific_options": [
+                {"name": "HDFC Bank", "rate": 7.10},
+                {"name": "Axis Bank", "rate": 7.20},
+                {"name": "SBI", "rate": 6.80}
+            ]
+        },
+        {
+            "id": "gold",
+            "name": "Digital Gold / SGBs",
+            "description": "A hedge against inflation. Very safe long-term store of value.",
+            "historical_return_percent": 8.5,
+            "risk_level": "Low",
+            "minimum_years_recommended": 3,
+            "specific_options": [
+                {"name": "Sovereign Gold Bonds (RBI)", "rate": 9.0}, # Includes 2.5% fixed interest
+                {"name": "Nippon India Gold ETF (GOLDBEES)", "rate": 8.2}
+            ]
+        },
+        {
+            "id": "mf_index",
+            "name": "Index Mutual Funds",
+            "description": "Invests in the top 50 companies. The best balance of safety and growth.",
+            "historical_return_percent": 12.0,
+            "risk_level": "Medium",
+            "minimum_years_recommended": 3,
+            "specific_options": [
+                {"name": "UTI Nifty 50 Index Fund", "rate": 12.4},
+                {"name": "HDFC Sensex Fund", "rate": 11.9}
+            ]
+        },
+        {
+            "id": "stocks_bluechip",
+            "name": "Bluechip Stocks",
+            "description": "Shares in massive, stable companies.",
+            "historical_return_percent": 15.0,
+            "risk_level": "Medium-High",
+            "minimum_years_recommended": 5,
+            "specific_options": [
+                {"name": "Reliance Industries (RELIANCE.NS)", "rate": 14.5},
+                {"name": "Tata Consultancy Services (TCS.NS)", "rate": 15.2},
+                {"name": "Apple (AAPL)", "rate": 18.0}
+            ]
+        }
+    ]
 
-# 1. Database of Fixed Income Assets (Since these don't have tickers, we define them here)
-FIXED_ASSETS = [
-    {"name": "Standard Fixed Deposit (FD)", "type": "FD", "annual_return": 0.07, "risk": "Low", "min_time_years": 1},
-    {"name": "Tax-Saver FD", "type": "FD", "annual_return": 0.075, "risk": "Low", "min_time_years": 5},
-    {"name": "Recurring Deposit (RD)", "type": "RD", "annual_return": 0.065, "risk": "Low", "min_time_years": 1},
-    {"name": "Government Bond (G-Sec)", "type": "Bond", "annual_return": 0.073, "risk": "Low", "min_time_years": 10}
-]
+    scoreboard = []
 
-MARKET_ASSETS = [
-    "AAPL", "TSLA",       
-    "VOO", "QQQ",         
-]
-
-def generate_wealth_plan(amount: float, is_monthly: bool, time_period_years: int, risk_profile: str) -> dict:
-    recommendations = {
-        "strategy": "",
-        "suggested_fixed_assets": [],
-        "suggested_market_assets": []
-    }
-
-    # --- BLOCK 1: Short Term (< 3 years) ---
-    if time_period_years < 3:
-        recommendations["strategy"] = "Capital Preservation"
+    for cat in categories:
+        rate = cat["historical_return_percent"] / 100
         
-        for asset in FIXED_ASSETS:
-            # Only look at assets where the lock-in period is less than our time frame
-            if asset["min_time_years"] <= time_period_years:
-                
-                # If they are investing monthly, recommend the Recurring Deposit (RD)
-                if is_monthly and asset["type"] == "RD":
-                    recommendations["suggested_fixed_assets"].append(asset)
-                    
-                # If it's a lump sum, recommend the Fixed Deposit (FD)
-                elif not is_monthly and asset["type"] == "FD":
-                    recommendations["suggested_fixed_assets"].append(asset)
-
-    # --- BLOCK 2: Medium Term (3 to 7 years) ---
-    elif 3 <= time_period_years <= 7:
-        recommendations["strategy"] = "Balanced Growth"
-        
-        # 1. Give them a Standard FD for safety
-        recommendations["suggested_fixed_assets"].append(FIXED_ASSETS[0]) 
-        
-        # 2. Give them the S&P 500 Index Fund (VOO) for growth
-        voo_metrics = calculate_asset_metrics("VOO")
-        voo_metrics["ticker"] = "VOO" # Add the name so we know what this data belongs to
-        recommendations["suggested_market_assets"].append(voo_metrics)
-        
-    # --- BLOCK 3: Long Term (> 7 years) ---
-    else:
-        recommendations["strategy"] = "Aggressive Wealth Accumulation"
-        
-        # First, we calculate the metrics for ALL market assets and store them in a temporary list
-        market_data = []
-        for ticker in MARKET_ASSETS:
-            metrics = calculate_asset_metrics(ticker)
-            metrics["ticker"] = ticker 
-            market_data.append(metrics)
-
-        # Now, we SORT the list based on the user's risk profile!
-        # (This is the Python magic for ranking things)
-        if risk_profile == "Conservative":
-            # Sort by Sharpe Ratio (Highest to lowest). lambda x: x["sharp_ratio"] tells Python to look at that specific number.
-            market_data.sort(key=lambda x: x["sharp_ratio"], reverse=True)
+        # MATH FIX: Compound interest for Lump Sum vs. SIP (Monthly)
+        if is_monthly:
+            # SIP Future Value Formula: P * [((1 + r/n)^(nt) - 1) / (r/n)] * (1 + r/n)
+            # Simplified monthly approximation:
+            monthly_rate = rate / 12
+            months = years * 12
+            projected_total = amount * (((1 + monthly_rate)**months - 1) / monthly_rate) * (1 + monthly_rate)
+            total_invested = amount * months
+        else:
+            projected_total = amount * ((1 + rate) ** years)
+            total_invested = amount
             
-        elif risk_profile == "Aggressive":
-            # Sort by 12-Month Momentum (Highest to lowest)
-            market_data.sort(key=lambda x: x["momentum_12m"], reverse=True)
+        projected_profit = projected_total - total_invested
+        
+        # Suitability Score Logic
+        score = 100
+        if years < cat["minimum_years_recommended"]:
+            score -= (cat["minimum_years_recommended"] - years) * 25
+            
+        if time_years == "none" and cat["risk_level"] in ["Medium", "Medium-High"]:
+            score += 15 # Favor equity for long term
+            
+        score = max(0, min(100, score))
 
-        # Finally, put the sorted list into our recommendations
-        recommendations["suggested_market_assets"] = market_data
+        scoreboard.append({
+            "id": cat["id"],
+            "name": cat["name"],
+            "description": cat["description"],
+            "risk": cat["risk_level"],
+            "total_invested": round(total_invested, 2),
+            "projected_total": round(projected_total, 2),
+            "projected_profit": round(projected_profit, 2),
+            "suitability_score": score,
+            "specific_options": cat["specific_options"] # Pass the drill-down data to the frontend!
+        })
 
-    return recommendations
+    scoreboard.sort(key=lambda x: x["suitability_score"], reverse=True)
 
-if __name__ == "__main__":
-    print("--- SCENARIO 1: Saving for a car in 2 years, Lump Sum ---")
-    plan1 = generate_wealth_plan(amount=50000, is_monthly=False, time_period_years=2, risk_profile="Conservative")
-    print(plan1)
-
-    print("\n--- SCENARIO 2: Retirement planning, 15 years, Aggressive ---")
-    plan2 = generate_wealth_plan(amount=100000, is_monthly=False, time_period_years=15, risk_profile="Aggressive")
-    print(plan2)
+    return {
+        "user_input": {"amount": amount, "is_monthly": is_monthly, "years": years},
+        "scoreboard": scoreboard
+    }

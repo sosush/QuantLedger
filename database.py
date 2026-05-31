@@ -46,6 +46,7 @@ class PortfolioItem(Base):
     ticker = Column(String, index=True)
     quantity = Column(Float) 
     average_buy_price = Column(Float)
+    asset_type = Column(String, default="STOCK") # "STOCK", "MF", "FD", "RD", "GOLD"
     
     owner_id = Column(Integer, ForeignKey("users.id"))
     

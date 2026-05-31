@@ -30,17 +30,22 @@ export const authAPI = {
 
 export const portfolioAPI = {
   getPortfolio: () => api.get('/api/portfolio'),
-  buyStock: (ticker, quantity, price) => api.post('/api/portfolio', { 
+  buyStock: (ticker, quantity, price, assetType) => api.post('/api/portfolio', { 
     ticker: ticker, 
     quantity: quantity, 
-    average_buy_price: price 
+    average_buy_price: price,
+    asset_type: assetType
   }),
   searchAssets: (query) => api.get(`/api/search?q=${query}`) // NEW LINE!
 };
 
 export const advisorAPI = {
-  getPlan: (data) => api.post('/api/plan', data),
+  getPlan: (amount, time_period, is_monthly) => 
+    api.post('/api/advisor', { amount, time_period, is_monthly }),
 };
 
-
+export const analysisAPI = {
+  compareStocks: (tickers, period) => 
+    api.post('/api/analyze', { tickers, period }),
+};
 export default api;
