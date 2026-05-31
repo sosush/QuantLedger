@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal, AssetMetric
@@ -8,10 +10,13 @@ from recommender import generate_wealth_plan
 from auth import get_password_hash, verify_password, create_access_token
 from database import User
 from fastapi.security import OAuth2PasswordRequestForm
-
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from auth import SECRET_KEY, ALGORITHM
+from scheduler import job_scheduler
+from fastapi.middleware.cors import CORSMiddleware
 
 class PortfolioItemCreate(BaseModel):
-    user_id: int
     ticker: str
     quantity: float
     average_buy_price: float
@@ -26,7 +31,30 @@ class UserCreate(BaseModel):
     email: str
     password: str
 
-app = FastAPI(title="QuantLedger API")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting background scheduler...")
+    job_scheduler.start()
+    yield
+    print("Shutting down background scheduler...")
+    job_scheduler.shutdown()
+
+app = FastAPI(title="QuantLedger API", lifespan=lifespan)
+
+
+_cors = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+allow_origins = ["*"] if _cors.strip() == "*" else [o.strip() for o in _cors.split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 
 def get_db():
@@ -35,6 +63,31 @@ def get_db():
         yield db
     finally:
         db.close()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+            
+    except JWTError:
+        raise credentials_exception
+        
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise credentials_exception
+        
+    return user
 
 @app.get("/")
 def health_check():
@@ -77,9 +130,9 @@ def get_metrics(ticker_symbol: str, db: Session = Depends(get_db)):
         }   
 
 @app.post("/api/portfolio")
-def add_portfolio_item(item: PortfolioItemCreate, db: Session = Depends(get_db)):
+def add_portfolio_item(item: PortfolioItemCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     new_item = PortfolioItem(
-        owner_id=item.user_id,
+        owner_id=current_user.id,  
         ticker=item.ticker.upper(),
         quantity=item.quantity,
         average_buy_price=item.average_buy_price
@@ -93,8 +146,9 @@ def add_portfolio_item(item: PortfolioItemCreate, db: Session = Depends(get_db))
 
 import yfinance as yf
 
-@app.get("/api/portfolio/{user_id}")
-def get_portfolio(user_id: int, db: Session = Depends(get_db)):
+@app.get("/api/portfolio")
+def get_portfolio(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user_id = current_user.id 
     items = db.query(PortfolioItem).filter(PortfolioItem.owner_id == user_id).all()
     
     if not items:
@@ -104,14 +158,17 @@ def get_portfolio(user_id: int, db: Session = Depends(get_db)):
     total_portfolio_value = 0.0
     total_portfolio_cost = 0.0
     
-    # Loop through each item the user owns
     for item in items:
-        current_price = yf.Ticker(item.ticker).history(period="1d")['Close'].iloc[-1]
+        cached_metric = db.query(AssetMetric).filter(AssetMetric.ticker == item.ticker).first()
+
+        if cached_metric and cached_metric.current_price:
+            current_price = cached_metric.current_price
+        else:
+            current_price = yf.Ticker(item.ticker).history(period="1d")['Close'].iloc[-1]
         
         total_cost = item.quantity * item.average_buy_price
         current_value = item.quantity * current_price
         
-        # Defensive programming: avoid dividing by zero if average_buy_price is 0
         profit_loss = current_value - total_cost
         profit_loss_percent = (profit_loss / total_cost) * 100 if total_cost > 0 else 0.0
         

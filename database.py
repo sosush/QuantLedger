@@ -1,3 +1,5 @@
+import os
+
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
@@ -5,7 +7,11 @@ from quant_engine import calculate_asset_metrics
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 
-DATABASE_URL = "sqlite:///./finance.db"
+from env_loader import load_env
+
+load_env()
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./finance.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -16,7 +22,7 @@ class AssetMetric(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     ticker = Column(String, unique=True, index=True)
-    
+    current_price = Column(Float, nullable=True)
     volatility = Column(Float)
     sharpe_ratio = Column(Float)
     momentum_12m = Column(Float)

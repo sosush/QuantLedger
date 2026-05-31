@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+apscheduler
+yfinance
+pandas
+numpy
+python-dotenv
