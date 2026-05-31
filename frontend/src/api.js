@@ -35,10 +35,12 @@ export const portfolioAPI = {
     quantity: quantity, 
     average_buy_price: price 
   }),
+  searchAssets: (query) => api.get(`/api/search?q=${query}`) // NEW LINE!
 };
 
 export const advisorAPI = {
   getPlan: (data) => api.post('/api/plan', data),
 };
+
 
 export default api;
