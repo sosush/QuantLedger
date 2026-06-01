@@ -6,68 +6,119 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  
-  // React Router hook to change pages
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); // Prevents the page from refreshing when you click submit
+    e.preventDefault();
     setError('');
-    
+    setSuccess('');
+
+    if (!isLogin) {
+      if (password.length < 6) return setError('Password must be at least 6 characters.');
+      if (password !== confirmPassword) return setError('Passwords do not match.');
+    }
+
+    setLoading(true);
     try {
       if (isLogin) {
-        // 1. Call our FastAPI Login endpoint
         const res = await authAPI.login(email, password);
-        
-        // 2. Save the VIP Stamp (JWT Token) to the browser's Local Storage!
         localStorage.setItem('token', res.data.access_token);
-        
-        // 3. Send them to the dashboard
-        navigate('/dashboard'); 
+        navigate('/dashboard');
       } else {
-        // Call FastAPI Register endpoint
         await authAPI.register(email, password);
-        alert("Registered successfully! Please log in.");
-        setIsLogin(true); // Switch back to login view
+        setSuccess('Account created! Please log in.');
+        setIsLogin(true);
+        setPassword('');
+        setConfirmPassword('');
       }
     } catch (err) {
-      // If FastAPI throws a 401 or 400 error, display it
-      setError(err.response?.data?.detail || "Something went wrong");
+      setError(err.response?.data?.detail || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: '400px', margin: '100px auto', fontFamily: 'sans-serif' }}>
-      <h2>{isLogin ? 'Login to QuantLedger' : 'Create an Account'}</h2>
-      
-      {error && <div style={{ color: 'red', marginBottom: '10px' }}>{error}</div>}
-      
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        <input 
-          type="email" 
-          placeholder="Email" 
-          value={email} 
-          onChange={(e) => setEmail(e.target.value)} 
-          required 
-          style={{ padding: '10px' }}
-        />
-        <input 
-          type="password" 
-          placeholder="Password" 
-          value={password} 
-          onChange={(e) => setPassword(e.target.value)} 
-          required 
-          style={{ padding: '10px' }}
-        />
-        <button type="submit" style={{ padding: '10px', backgroundColor: '#0070f3', color: 'white', border: 'none', cursor: 'pointer' }}>
-          {isLogin ? 'Login' : 'Register'}
-        </button>
-      </form>
-      
-      <p style={{ marginTop: '20px', cursor: 'pointer', color: 'blue' }} onClick={() => setIsLogin(!isLogin)}>
-        {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
-      </p>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    }}>
+      <div style={{ width: '100%', maxWidth: 440, animation: 'slideUp 0.5s ease both' }}>
+        <div style={{ textAlign: 'center', marginBottom: 36 }}>
+          <div style={{
+            width: 64, height: 64,
+            background: 'linear-gradient(135deg, var(--gold-light), var(--gold-dark))',
+            borderRadius: 18,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 28,
+            fontFamily: 'var(--font-display)',
+            color: '#1a1408',
+            boxShadow: 'var(--shadow-gold)',
+            marginBottom: 16,
+          }}>₹</div>
+          <h1 style={{ marginBottom: 6 }}>QuantLedger</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
+            {isLogin ? 'Sign in to your golden ledger' : 'Create your wealth account'}
+          </p>
+        </div>
+
+        <div className="glass-card" style={{ padding: 32 }}>
+          <div className="tabs" style={{ marginBottom: 24 }}>
+            {['Login', 'Register'].map((tab) => {
+              const active = isLogin === (tab === 'Login');
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`tab${active ? ' active' : ''}`}
+                  onClick={() => { setIsLogin(tab === 'Login'); setError(''); setSuccess(''); }}
+                >
+                  {tab}
+                </button>
+              );
+            })}
+          </div>
+
+          {error && <div className="alert-error mb-4"><span>⚠️</span> {error}</div>}
+          {success && <div className="alert-success mb-4"><span>✅</span> {success}</div>}
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input type="email" className="form-input" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input type="password" className="form-input" placeholder={isLogin ? '••••••••' : 'Min. 6 characters'} value={password} onChange={(e) => setPassword(e.target.value)} required />
+            </div>
+            {!isLogin && (
+              <div className="form-group">
+                <label className="form-label">Confirm password</label>
+                <input type="password" className="form-input" placeholder="Re-enter password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+              </div>
+            )}
+            <button type="submit" className={`btn btn-primary w-full${loading ? ' btn-loading' : ''}`} disabled={loading} style={{ marginTop: 8, padding: 14 }}>
+              {!loading && (isLogin ? 'Sign In →' : 'Create Account')}
+            </button>
+          </form>
+        </div>
+
+        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, marginTop: 20 }}>
+          {isLogin ? "Don't have an account? " : 'Already have an account? '}
+          <span style={{ color: 'var(--gold-light)', cursor: 'pointer', fontWeight: 600 }} onClick={() => { setIsLogin(!isLogin); setError(''); setSuccess(''); }}>
+            {isLogin ? 'Register' : 'Login'}
+          </span>
+        </p>
+      </div>
     </div>
   );
 }

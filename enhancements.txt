@@ -1,0 +1,33 @@
+1. increase investment options to the following
+
+Fixed income low risk
+Fixed Deposits (FDs): Lock money in a bank at a fixed interest rate for a specific tenure.
+Recurring Deposits (RDs): Invest small, fixed amounts every month into a bank or post office.
+Government Bonds & Securities: Loans given to the government in exchange for regular interest and return of principal.
+Public Provident Fund (PPF): Government-backed, long-term savings scheme with tax benefits.
+Senior Citizens Savings Scheme (SCSS): Post office or bank accounts for retirees offering guaranteed regular income.
+Corporate Bonds: Loans provided to private companies in exchange for fixed coupon payments
+
+market linked medium-high risk
+Stocks / Equities: Buying shares that represent direct ownership in a publicly traded company.
+Mutual Funds: Professionally managed pools of money that invest in diversified stocks, bonds, or both.
+ETFs (Exchange Traded Funds): Index funds that track specific markets and can be traded on stock exchanges like regular shares.
+ULIPs (Unit-Linked Insurance Plans): Hybrid financial products providing both life insurance and market-linked investment returns.
+National Pension System (NPS): Government-sponsored pension scheme that invests in a mix of equity and debt for retirement.
+
+Physical assets
+Real Estate: Purchasing land, residential, or commercial properties for capital appreciation and rental income.
+REITs (Real Estate Investment Trusts): Buying shares of companies that own/operate commercial real estate, allowing you to earn rental income without buying a building yourself.
+Gold & Precious Metals: Investing in physical gold, sovereign gold bonds, or gold ETFs to hedge against inflation.
+Cryptocurrencies: Digital or virtual currencies (e.g., Bitcoin) secured by cryptography.
+Private Equity / Hedge Funds: Pooled investment vehicles that are not publicly traded, typically available to high-net-worth individuals
+
+keep these in portfolio as well as recommendation and provide and provide/ask for details specific to each
+
+2. stock names are still hard to decrypt(for example for hdfc there is 1 stock whose name is just hdfc one with hdfcbank and layman doesnt know which to choose). maybe include a key or something for people to figure out.
+
+3. In the stock market trend comparison graph place, include and option for 3months as well. also show a metric of for each unit change of stock a how much stock b or c changes and vice versa.
+
+4. in the recommendation for wealth plan page, instead of using an assumption return rate, give a max and min, for each investment option and in the option of places to invest under that criteria, show the top 5 with best interest rates currently(real-time data)
+
+5. Its difficult to add every detail of an investment manually in portfolio. maybe try pan-card syncing/mfcentral syncing, besides the manual enter(keep the manual too)

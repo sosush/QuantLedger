@@ -1,34 +1,41 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { portfolioAPI } from '../api';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#ffc658'];
+const CHART_COLORS = ['#d4af37', '#f0d78c', '#9a7b1a', '#4ade80', '#a89f8c', '#c4a35a'];
+
+const SEARCH_TYPES = new Set(['STOCK', 'MF', 'ETF', 'REIT', 'CRYPTO']);
 
 export default function Dashboard() {
-  // --- ALL STATE HOOKS MUST LIVE INSIDE THE FUNCTION ---
   const [portfolio, setPortfolio] = useState(null);
+  const [catalog, setCatalog] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [entryMode, setEntryMode] = useState('manual');
   const [assetType, setAssetType] = useState('STOCK');
 
-  // Trade Form State
   const [ticker, setTicker] = useState('');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
+  const [maturityDate, setMaturityDate] = useState('');
 
-  // Autocomplete Search State
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // --- LIFECYCLE & DATA FETCHING ---
+  const [pan, setPan] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [mfOtp, setMfOtp] = useState('');
+  const [mfOtpSent, setMfOtpSent] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+
   const fetchPortfolio = async () => {
     try {
       setLoading(true);
       const res = await portfolioAPI.getPortfolio();
       setPortfolio(res.data);
     } catch (error) {
-      console.error("Failed to fetch portfolio:", error);
       if (error.response?.status === 401) {
-        handleLogout();
+        localStorage.removeItem('token');
+        window.location.href = '/login';
       }
     } finally {
       setLoading(false);
@@ -37,20 +44,31 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchPortfolio();
+    portfolioAPI.getCatalog().then((r) => setCatalog(r.data)).catch(() => {});
   }, []);
 
-  // --- SEARCH LOGIC ---
+  const fieldSchema = useMemo(() => {
+    if (!catalog?.fields) return [];
+    return catalog.fields[assetType] || [];
+  }, [catalog, assetType]);
+
+  const typeOptions = useMemo(() => {
+    if (!catalog?.groups) return [];
+    return catalog.groups.flatMap((g) =>
+      g.types.map((t) => ({ ...t, group: g.label }))
+    );
+  }, [catalog]);
+
   const handleSearchChange = async (e) => {
     const query = e.target.value;
     setTicker(query);
-    
     if (query.length > 1) {
       setIsSearching(true);
       try {
         const res = await portfolioAPI.searchAssets(query);
         setSearchResults(res.data);
-      } catch (err) {
-        console.error("Search failed");
+      } catch {
+        setSearchResults([]);
       }
     } else {
       setSearchResults([]);
@@ -60,116 +78,369 @@ export default function Dashboard() {
 
   const handleSelectAsset = (symbol) => {
     setTicker(symbol);
-    setSearchResults([]); // Hide the dropdown
+    setSearchResults([]);
     setIsSearching(false);
   };
 
-  // --- SUBMIT TRADE LOGIC ---
+  const resetForm = () => {
+    setTicker('');
+    setQuantity('');
+    setPrice('');
+    setMaturityDate('');
+  };
+
   const handleBuy = async (e) => {
     e.preventDefault();
     try {
-        await portfolioAPI.buyStock(ticker, parseFloat(quantity), parseFloat(price), assetType);
-
-      setTicker(''); setQuantity(''); setPrice('');
-      fetchPortfolio(); // Refresh pie chart
+      await portfolioAPI.buyStock(
+        ticker,
+        parseFloat(quantity),
+        parseFloat(price),
+        assetType,
+        maturityDate || null
+      );
+      resetForm();
+      fetchPortfolio();
     } catch (error) {
-      const errorMessage = error.response?.data?.detail || "Error adding trade";
-      alert(errorMessage);
+      alert(error.response?.data?.detail || 'Error adding asset');
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    window.location.href = '/login';
+  const handlePanSync = async (e) => {
+    e.preventDefault();
+    setSyncMsg('');
+    try {
+      const res = await portfolioAPI.syncPan(pan);
+      setSyncMsg(res.data.message);
+      setPan('');
+      fetchPortfolio();
+    } catch (error) {
+      setSyncMsg(error.response?.data?.detail || 'PAN sync failed');
+    }
   };
 
-  if (loading) return <div style={{ padding: '50px', textAlign: 'center' }}>Loading Market Data...</div>;
+  const handleMfSync = async (e) => {
+    e.preventDefault();
+    setSyncMsg('');
+    try {
+      const res = await portfolioAPI.syncMfCentral(mobile, mfOtpSent ? mfOtp : undefined);
+      if (res.data.status === 'otp_required') {
+        setMfOtpSent(true);
+        setSyncMsg(res.data.message);
+        return;
+      }
+      setSyncMsg(res.data.message);
+      setMfOtp('');
+      setMfOtpSent(false);
+      fetchPortfolio();
+    } catch (error) {
+      setSyncMsg(error.response?.data?.detail || 'MF Central sync failed');
+    }
+  };
 
-  const chartData = portfolio?.holdings?.map(item => ({
+  const usesSearch = SEARCH_TYPES.has(assetType);
+
+  if (loading && !portfolio) {
+    return (
+      <div className="loading-page">
+        <div className="loading-spinner" />
+        <span>Loading your portfolio…</span>
+      </div>
+    );
+  }
+
+  const holdings = portfolio?.holdings || [];
+  const chartData = holdings.map((item) => ({
     name: item.ticker,
-    value: item.quantity * item.current_price
-  })) || [];
+    value: item.current_value ?? item.quantity * item.current_price,
+  }));
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>QuantLedger Dashboard</h1>
+    <div className="page-container animate-in">
+      <header className="page-header">
+        <h1>Portfolio</h1>
+        <p>Track every asset class — from fixed deposits to equities — in one golden ledger.</p>
+      </header>
+
+      <div className="stat-grid">
+        <div className="glass-card stat-card">
+          <div className="stat-label">Total Value</div>
+          <div className="stat-value">₹{(portfolio?.total_value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+        </div>
+        <div className="glass-card stat-card">
+          <div className="stat-label">Profit / Loss</div>
+          <div className={`stat-value ${(portfolio?.total_pnl ?? 0) >= 0 ? 'positive' : 'negative'}`}>
+            {(portfolio?.total_pnl ?? 0) >= 0 ? '+' : ''}₹{(portfolio?.total_pnl ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            <span style={{ fontSize: '0.55em', marginLeft: 8, opacity: 0.85 }}>
+              ({(portfolio?.total_pnl_percent ?? 0).toFixed(2)}%)
+            </span>
+          </div>
+        </div>
+        <div className="glass-card stat-card">
+          <div className="stat-label">Holdings</div>
+          <div className="stat-value">{holdings.length}</div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '20px', margin: '20px 0' }}>
-        <div style={{ padding: '20px', background: '#f0f2f5', borderRadius: '8px', flex: 1 }}>
-          <h3>Total Value</h3>
-          <h2 style={{ margin: 0, color: '#111' }}>${portfolio?.total_value?.toFixed(2) || '0.00'}</h2>
-        </div>
-        <div style={{ padding: '20px', background: '#f0f2f5', borderRadius: '8px', flex: 1 }}>
-          <h3>Total Profit/Loss</h3>
-          <h2 style={{ margin: 0, color: portfolio?.total_pnl >= 0 ? 'green' : 'red' }}>
-            ${portfolio?.total_pnl?.toFixed(2) || '0.00'} 
-            ({portfolio?.total_pnl_percent?.toFixed(2) || '0.00'}%)
-          </h2>
-        </div>
-      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
+        <div className="glass-card" style={{ padding: 24 }}>
+          <h3 style={{ marginBottom: 16, fontSize: '1.15rem' }}>Add Holdings</h3>
 
-      <div style={{ display: 'flex', gap: '40px' }}>
-{/* --- ADD TRADE FORM --- */}
-<div style={{ flex: 1, padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
-          <h3>Log an Asset</h3>
-          <form onSubmit={handleBuy} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            
-            <select value={assetType} onChange={(e) => setAssetType(e.target.value)} style={{ padding: '8px' }}>
-              <option value="STOCK">Stock / ETF</option>
-              <option value="MF">Mutual Fund</option>
-              <option value="FD">Fixed Deposit (FD)</option>
-              <option value="RD">Recurring Deposit (RD)</option>
-              <option value="GOLD">Physical/Digital Gold</option>
-            </select>
+          <div className="tabs">
+            {[
+              { id: 'manual', label: '✍️ Manual' },
+              { id: 'pan', label: '🪪 PAN Sync' },
+              { id: 'mf', label: '📱 MF Central' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`tab${entryMode === tab.id ? ' active' : ''}`}
+                onClick={() => { setEntryMode(tab.id); setSyncMsg(''); }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-            {/* If it's a Stock/MF, show Autocomplete. Otherwise, standard input! */}
-            {['STOCK', 'MF'].includes(assetType) ? (
-              <div style={{ position: 'relative' }}>
-                <input type="text" placeholder="Search Company (e.g., Tata)" value={ticker} onChange={handleSearchChange} required style={{ padding: '8px', width: '100%', boxSizing: 'border-box' }} />
-                {isSearching && searchResults.length > 0 && (
-                  <ul style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #ccc', margin: 0, padding: 0, listStyle: 'none', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
-                    {searchResults.map((result) => (
-                      <li key={result.symbol} onClick={() => handleSelectAsset(result.symbol)} style={{ padding: '10px', cursor: 'pointer', borderBottom: '1px solid #eee' }}>
-                        <strong>{result.symbol}</strong> - {result.name}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+          {syncMsg && (
+            <div className="alert-success mb-4" style={{ marginBottom: 16 }}>{syncMsg}</div>
+          )}
+
+          {entryMode === 'manual' && (
+            <form onSubmit={handleBuy} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="form-group">
+                <label className="form-label">Investment type</label>
+                <select
+                  className="form-select"
+                  value={assetType}
+                  onChange={(e) => { setAssetType(e.target.value); resetForm(); }}
+                >
+                  {typeOptions.length === 0 && (
+                    <>
+                      <option value="STOCK">Stocks / Equities</option>
+                      <option value="MF">Mutual Funds</option>
+                      <option value="FD">Fixed Deposit</option>
+                    </>
+                  )}
+                  {catalog?.groups?.map((g) => (
+                    <optgroup key={g.id} label={g.label}>
+                      {g.types.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <input type="text" placeholder="Asset Name (e.g., SBI Fixed Deposit)" value={ticker} onChange={e => setTicker(e.target.value)} required style={{ padding: '8px' }}/>
-            )}
 
-            <input type="number" step="0.01" placeholder={['FD', 'RD'].includes(assetType) ? "Amount Invested (₹ or $)" : "Quantity"} value={quantity} onChange={e => setQuantity(e.target.value)} required style={{ padding: '8px' }}/>
-            
-            <input type="number" step="0.01" placeholder={['FD', 'RD'].includes(assetType) ? "Expected Interest Rate (%)" : "Average Buy Price"} value={price} onChange={e => setPrice(e.target.value)} required style={{ padding: '8px' }}/>
-            
-            <button type="submit" style={{ padding: '10px', background: '#1890ff', color: 'white', border: 'none', cursor: 'pointer' }}>Add to Portfolio</button>
-          </form>
+              {usesSearch ? (
+                <div className="form-group" style={{ position: 'relative' }}>
+                  <label className="form-label">Search symbol</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. HDFC Bank, Reliance"
+                    value={ticker}
+                    onChange={handleSearchChange}
+                    required
+                  />
+                  {isSearching && searchResults.length > 0 && (
+                    <div className="autocomplete-dropdown">
+                      {searchResults.map((r) => (
+                        <div
+                          key={r.symbol}
+                          className="autocomplete-item"
+                          onClick={() => handleSelectAsset(r.symbol)}
+                        >
+                          <strong>{r.symbol}</strong>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}> — {r.name}</span>
+                          <div className="hint">💡 {r.hint}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label">{fieldSchema.find((f) => f.key === 'ticker')?.label || 'Name'}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label">
+                  {fieldSchema.find((f) => f.key === 'quantity')?.label || 'Quantity'}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="form-input"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  {fieldSchema.find((f) => f.key === 'average_buy_price')?.label || 'Price / Rate'}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="form-input"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  required
+                />
+              </div>
+
+              {fieldSchema.some((f) => f.key === 'maturity_date') && (
+                <div className="form-group">
+                  <label className="form-label">Maturity date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={maturityDate}
+                    onChange={(e) => setMaturityDate(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <button type="submit" className="btn btn-primary w-full">Add to Portfolio</button>
+            </form>
+          )}
+
+          {entryMode === 'pan' && (
+            <form onSubmit={handlePanSync} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                Link holdings via PAN (demo imports sample stocks & PPF). Production: NSDL/CDSL integration.
+              </p>
+              <div className="form-group">
+                <label className="form-label">PAN number</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="ABCDE1234F"
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  maxLength={10}
+                  required
+                />
+              </div>
+              <button type="submit" className="btn btn-primary w-full">Sync via PAN</button>
+            </form>
+          )}
+
+          {entryMode === 'mf' && (
+            <form onSubmit={handleMfSync} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                Import mutual funds from MF Central (demo). Enter mobile, then OTP when prompted.
+              </p>
+              <div className="form-group">
+                <label className="form-label">Registered mobile</label>
+                <input
+                  type="tel"
+                  className="form-input"
+                  placeholder="9876543210"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                  required
+                />
+              </div>
+              {mfOtpSent && (
+                <div className="form-group">
+                  <label className="form-label">OTP</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="6-digit OTP"
+                    value={mfOtp}
+                    onChange={(e) => setMfOtp(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+              <button type="submit" className="btn btn-primary w-full">
+                {mfOtpSent ? 'Verify & Import' : 'Send OTP'}
+              </button>
+            </form>
+          )}
         </div>
 
-        <div style={{ flex: 1, height: '300px' }}>
+        <div className="glass-card chart-wrap" style={{ minHeight: 320 }}>
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={chartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                <Pie
+                  data={chartData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={95}
+                  paddingAngle={4}
+                  dataKey="value"
+                >
+                  {chartData.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} stroke="rgba(0,0,0,0.2)" />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => `$${value.toFixed(2)}`} />
+                <Tooltip
+                  formatter={(v) => [`₹${Number(v).toLocaleString()}`, 'Value']}
+                  contentStyle={{
+                    background: '#12101a',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: 8,
+                  }}
+                />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
-              No assets in portfolio yet. Buy a stock to see analytics!
+            <div className="loading-page" style={{ minHeight: 260 }}>
+              <span>No assets yet — add manually or sync</span>
             </div>
           )}
         </div>
       </div>
+
+      {holdings.length > 0 && (
+        <div className="glass-card" style={{ padding: 24, marginTop: 24 }}>
+          <h3 style={{ marginBottom: 16 }}>Holdings</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="holdings-table">
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Value</th>
+                  <th>P&amp;L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {holdings.map((h) => (
+                  <tr key={h.id || h.ticker}>
+                    <td><strong style={{ color: 'var(--gold-light)' }}>{h.ticker}</strong></td>
+                    <td><span className="badge badge-neutral">{h.asset_type}</span></td>
+                    <td>{h.quantity}</td>
+                    <td>₹{(h.current_value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td style={{ color: h.pnl >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {h.pnl >= 0 ? '+' : ''}₹{h.pnl?.toFixed(0)} ({h.pnl_percent?.toFixed(1)}%)
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,19 +3,17 @@ import Auth from './components/auth';
 import Dashboard from './components/dashboard';
 import Advisor from './components/advisor';
 import Analysis from './components/analysis';
+import Profile from './components/profile';
 import Navbar from './components/navbar';
 
-// A special component to protect our routes and show the Navbar
 function ProtectedLayout({ children }) {
   const token = localStorage.getItem('token');
   if (!token) return <Navigate to="/login" />;
-  
+
   return (
-    <div>
+    <div className="app-shell">
       <Navbar />
-      <div style={{ padding: '20px' }}>
-        {children}
-      </div>
+      <main className="app-main">{children}</main>
     </div>
   );
 }
@@ -26,11 +24,10 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" />} />
         <Route path="/login" element={<Auth />} />
-        
-        {/* Protected Routes (Require Login & Show Navbar) */}
         <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
         <Route path="/advisor" element={<ProtectedLayout><Advisor /></ProtectedLayout>} />
         <Route path="/analysis" element={<ProtectedLayout><Analysis /></ProtectedLayout>} />
+        <Route path="/profile" element={<ProtectedLayout><Profile /></ProtectedLayout>} />
       </Routes>
     </Router>
   );

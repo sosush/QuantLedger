@@ -1,4 +1,7 @@
 import os
+from datetime import date
+from typing import Optional
+
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal, AssetMetric
@@ -17,6 +20,12 @@ import requests
 import yfinance as yf
 from recommender import generate_scoreboard
 from analysis_engine import generate_stock_comparison
+from investment_catalog import (
+    INVESTMENT_GROUPS,
+    TYPE_FIELD_SCHEMA,
+    MARKET_LINKED_TYPES,
+    SYMBOL_HINTS,
+)
 
 class AnalysisRequest(BaseModel):
     tickers: list[str]  # e.g., ["AAPL", "MSFT"]
@@ -27,6 +36,21 @@ class PortfolioItemCreate(BaseModel):
     quantity: float
     average_buy_price: float
     asset_type: str = "STOCK"
+    maturity_date: Optional[date] = None
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    occupation: Optional[str] = None
+    risk_appetite: Optional[str] = None
+    avatar_color: Optional[str] = None
+
+class PanSyncRequest(BaseModel):
+    pan: str
+
+class MfCentralSyncRequest(BaseModel):
+    mobile: str
+    otp: Optional[str] = None
 
 class AdvisorRequest(BaseModel):
     amount: float
@@ -138,19 +162,18 @@ def get_metrics(ticker_symbol: str, db: Session = Depends(get_db)):
 @app.post("/api/portfolio")
 def add_portfolio_item(item: PortfolioItemCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     
-    # 1. VALIDATION: Only check Yahoo Finance if it's a Market Asset
-    if item.asset_type in ["STOCK", "MF", "ETF"]:
+    if item.asset_type in MARKET_LINKED_TYPES:
         history = yf.Ticker(item.ticker).history(period="1d")
         if history.empty:
             raise HTTPException(status_code=400, detail=f"Asset '{item.ticker}' has no active price data.")
 
-    # 2. Safe to save!
     new_item = PortfolioItem(
         owner_id=current_user.id,
         ticker=item.ticker,
         quantity=item.quantity,
         average_buy_price=item.average_buy_price,
-        asset_type=item.asset_type # Save the type
+        asset_type=item.asset_type,
+        maturity_date=item.maturity_date,
     )
     
     db.add(new_item)
@@ -164,47 +187,45 @@ def get_portfolio(current_user: User = Depends(get_current_user), db: Session = 
     user_id = current_user.id 
     items = db.query(PortfolioItem).filter(PortfolioItem.owner_id == user_id).all()
     
-    if not items:
-        return {"message": "Portfolio is empty."}
-    
     portfolio_summary = []
     total_portfolio_value = 0.0
     total_portfolio_cost = 0.0
-    
+
+    fixed_income_types = {"FD", "RD", "GOV_BOND", "PPF", "SCSS", "CORP_BOND", "NPS", "REAL_ESTATE", "GOLD", "PE", "ULIP"}
 
     for item in items:
-
-        if item.asset_type in ["FD", "RD"]:
+        if item.asset_type in fixed_income_types:
             current_price = item.average_buy_price
-            
-        else: 
+        else:
             cached_metric = db.query(AssetMetric).filter(AssetMetric.ticker == item.ticker).first()
             if cached_metric and cached_metric.current_price:
                 current_price = cached_metric.current_price
             else:
                 try:
-                    current_price = yf.Ticker(item.ticker).history(period="1d")['Close'].iloc[-1]
-                except IndexError:
-                    current_price = 0.0
-                    
+                    hist = yf.Ticker(item.ticker).history(period="1d")
+                    current_price = float(hist["Close"].iloc[-1]) if not hist.empty else item.average_buy_price
+                except (IndexError, KeyError, ValueError):
+                    current_price = item.average_buy_price
+
         total_cost = item.quantity * item.average_buy_price
         current_value = item.quantity * current_price
-
-
-        
         profit_loss = current_value - total_cost
         profit_loss_percent = (profit_loss / total_cost) * 100 if total_cost > 0 else 0.0
-        
 
         total_portfolio_value += current_value
         total_portfolio_cost += total_cost
-        
-        portfolio_summary.append({ 
-            "ticker": item.ticker, 
+
+        portfolio_summary.append({
+            "id": item.id,
+            "ticker": item.ticker,
             "quantity": item.quantity,
+            "average_buy_price": item.average_buy_price,
+            "asset_type": item.asset_type,
+            "maturity_date": item.maturity_date.isoformat() if item.maturity_date else None,
             "current_price": current_price,
-            "pnl": profit_loss, 
-            "pnl_percent": profit_loss_percent 
+            "current_value": current_value,
+            "pnl": profit_loss,
+            "pnl_percent": profit_loss_percent,
         })
         
     total_pnl = total_portfolio_value - total_portfolio_cost
@@ -217,7 +238,8 @@ def get_portfolio(current_user: User = Depends(get_current_user), db: Session = 
         "total_cost": total_portfolio_cost,
         "total_pnl": total_pnl,
         "total_pnl_percent": total_pnl_percent,
-        "holdings": portfolio_summary
+        "holdings": portfolio_summary,
+        "message": "Portfolio is empty." if not portfolio_summary else None,
     }
 
 @app.post("/api/advisor")
@@ -267,29 +289,155 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # 4. Return it to the frontend!
     return {"access_token": access_token, "token_type": "bearer"}
 
+def _symbol_hint(symbol: str, name: str, quote_type: str, exchange: str) -> str:
+    if symbol in SYMBOL_HINTS:
+        return SYMBOL_HINTS[symbol]
+    type_label = quote_type.replace("_", " ").title() if quote_type else "Security"
+    return f"{type_label} · {exchange} — {name}"
+
+
+@app.get("/api/investment-catalog")
+def get_investment_catalog():
+    return {"groups": INVESTMENT_GROUPS, "fields": TYPE_FIELD_SCHEMA}
+
+
+@app.get("/api/profile")
+def get_profile(current_user: User = Depends(get_current_user)):
+    return {
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "phone": current_user.phone,
+        "occupation": current_user.occupation,
+        "risk_appetite": current_user.risk_appetite or "Moderate",
+        "avatar_color": current_user.avatar_color or "#c9a227",
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+    }
+
+
+@app.put("/api/profile")
+def update_profile(
+    data: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value)
+    db.commit()
+    db.refresh(current_user)
+    return {
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "phone": current_user.phone,
+        "occupation": current_user.occupation,
+        "risk_appetite": current_user.risk_appetite or "Moderate",
+        "avatar_color": current_user.avatar_color or "#c9a227",
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+    }
+
+
+@app.post("/api/portfolio/sync/pan")
+def sync_portfolio_pan(
+    body: PanSyncRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Demo PAN sync — imports sample holdings. Wire to NSDL/CDSL APIs in production."""
+    pan = body.pan.strip().upper()
+    if len(pan) != 10:
+        raise HTTPException(status_code=400, detail="PAN must be 10 characters (e.g. ABCDE1234F)")
+
+    demo = [
+        ("HDFCBANK.NS", 10, 1650.0, "STOCK"),
+        ("INFY.NS", 15, 1450.0, "STOCK"),
+        ("PPF-Account", 50000, 50000.0, "PPF"),
+    ]
+    added = 0
+    for ticker, qty, price, atype in demo:
+        exists = db.query(PortfolioItem).filter(
+            PortfolioItem.owner_id == current_user.id,
+            PortfolioItem.ticker == ticker,
+        ).first()
+        if exists:
+            continue
+        db.add(PortfolioItem(
+            owner_id=current_user.id,
+            ticker=ticker,
+            quantity=qty,
+            average_buy_price=price,
+            asset_type=atype,
+        ))
+        added += 1
+    db.commit()
+    return {"message": f"PAN sync complete for {pan[:4]}****. Imported {added} new holding(s).", "imported": added}
+
+
+@app.post("/api/portfolio/sync/mfcentral")
+def sync_portfolio_mfcentral(
+    body: MfCentralSyncRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Demo MF Central sync — OTP flow stub. Integrate MF Central API for production."""
+    mobile = "".join(c for c in body.mobile if c.isdigit())
+    if len(mobile) < 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number")
+    if not body.otp:
+        return {"status": "otp_required", "message": "OTP sent to registered mobile (demo). Submit again with otp."}
+
+    demo = [
+        ("122019", 250.5, 45.2, "MF"),
+        ("120503", 120.0, 88.5, "MF"),
+    ]
+    added = 0
+    for ticker, qty, price, atype in demo:
+        exists = db.query(PortfolioItem).filter(
+            PortfolioItem.owner_id == current_user.id,
+            PortfolioItem.ticker == ticker,
+        ).first()
+        if exists:
+            continue
+        db.add(PortfolioItem(
+            owner_id=current_user.id,
+            ticker=f"MF-{ticker}",
+            quantity=qty,
+            average_buy_price=price,
+            asset_type=atype,
+        ))
+        added += 1
+    db.commit()
+    return {"message": f"MF Central sync complete. Imported {added} mutual fund holding(s).", "imported": added}
+
+
 @app.get("/api/search")
 def search_assets(q: str):
-    """Searches Yahoo Finance and returns a clean list of matching stocks."""
+    """Search Yahoo Finance with layman-friendly disambiguation hints."""
     if not q or len(q) < 2:
         return []
-        
+
     url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}"
-    headers = {'User-Agent': 'Mozilla/5.0'} 
-    
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        data = response.json()
-        results = []
-        for item in data.get('quotes', []):
-            # We only want real financial assets that have a symbol and a name
-            if 'symbol' in item and 'shortname' in item:
-                results.append({
-                    "symbol": item['symbol'],
-                    "name": item['shortname'],
-                    "exchange": item.get('exchDisp', 'Unknown')
-                })
-        return results[:5] # Return top 5 results to the frontend
-    return []
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    response = requests.get(url, headers=headers, timeout=8)
+    if response.status_code != 200:
+        return []
+
+    data = response.json()
+    results = []
+    for item in data.get("quotes", []):
+        if "symbol" not in item:
+            continue
+        name = item.get("shortname") or item.get("longname") or item["symbol"]
+        exchange = item.get("exchDisp", "Unknown")
+        quote_type = item.get("quoteType", "")
+        symbol = item["symbol"]
+        results.append({
+            "symbol": symbol,
+            "name": name,
+            "exchange": exchange,
+            "quote_type": quote_type,
+            "hint": _symbol_hint(symbol, name, quote_type, exchange),
+        })
+    return results[:8]
 
 @app.post("/api/analyze")
 def analyze_stocks(request: AnalysisRequest):

@@ -7,15 +7,12 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 export const authAPI = {
@@ -30,22 +27,34 @@ export const authAPI = {
 
 export const portfolioAPI = {
   getPortfolio: () => api.get('/api/portfolio'),
-  buyStock: (ticker, quantity, price, assetType) => api.post('/api/portfolio', { 
-    ticker: ticker, 
-    quantity: quantity, 
-    average_buy_price: price,
-    asset_type: assetType
-  }),
-  searchAssets: (query) => api.get(`/api/search?q=${query}`) // NEW LINE!
+  getCatalog: () => api.get('/api/investment-catalog'),
+  buyStock: (ticker, quantity, price, assetType, maturityDate) =>
+    api.post('/api/portfolio', {
+      ticker,
+      quantity,
+      average_buy_price: price,
+      asset_type: assetType,
+      maturity_date: maturityDate || null,
+    }),
+  deleteItem: (itemId) => api.delete(`/api/portfolio/${itemId}`),
+  searchAssets: (query) => api.get(`/api/search?q=${encodeURIComponent(query)}`),
+  syncPan: (pan) => api.post('/api/portfolio/sync/pan', { pan }),
+  syncMfCentral: (mobile, otp) => api.post('/api/portfolio/sync/mfcentral', { mobile, otp }),
 };
 
 export const advisorAPI = {
-  getPlan: (amount, time_period, is_monthly) => 
+  getPlan: (amount, time_period, is_monthly) =>
     api.post('/api/advisor', { amount, time_period, is_monthly }),
 };
 
 export const analysisAPI = {
-  compareStocks: (tickers, period) => 
+  compareStocks: (tickers, period) =>
     api.post('/api/analyze', { tickers, period }),
 };
+
+export const profileAPI = {
+  getProfile: () => api.get('/api/profile'),
+  updateProfile: (data) => api.put('/api/profile', data),
+};
+
 export default api;

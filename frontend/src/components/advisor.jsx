@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { advisorAPI } from '../api';
 
-export default function advisor() {
-  // Form State
+export default function Advisor() {
   const [amount, setAmount] = useState(100000);
-  const [timePeriod, setTimePeriod] = useState("5");
+  const [timePeriod, setTimePeriod] = useState('5');
   const [isMonthly, setIsMonthly] = useState(false);
-  
-  // Data State
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [expandedId, setExpandedId] = useState(null); // Controls which drill-down is open
+  const [expandedId, setExpandedId] = useState(null);
 
   const handleGetAdvice = async (e) => {
     e.preventDefault();
@@ -18,137 +15,127 @@ export default function advisor() {
     try {
       const res = await advisorAPI.getPlan(amount, timePeriod, isMonthly);
       setResults(res.data);
-      setExpandedId(null); // Reset expansions on new search
-    } catch (error) {
-      alert("Error fetching advice. Please try again.");
+      setExpandedId(null);
+    } catch {
+      alert('Error fetching advice. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper to color-code risk levels
-  const getRiskColor = (risk) => {
-    if (risk.includes("Zero") || risk.includes("Low")) return "green";
-    if (risk.includes("Medium")) return "orange";
-    return "red";
+  const riskClass = (risk) => {
+    if (risk.includes('Low')) return 'var(--green)';
+    if (risk.includes('Medium')) return 'var(--gold)';
+    return 'var(--red)';
   };
 
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto', fontFamily: 'sans-serif' }}>
-      <h1>Investment Advisor</h1>
-      <p style={{ color: 'gray' }}>Enter your investment goals to get a personalized, math-driven strategy.</p>
+    <div className="page-container animate-in">
+      <header className="page-header">
+        <h1>Wealth Advisor</h1>
+        <p>Personalized projections with min–max return bands and today&apos;s top-rate picks per category.</p>
+      </header>
 
-      {/* --- USER INPUT FORM --- */}
-      <form onSubmit={handleGetAdvice} style={{ display: 'flex', gap: '20px', background: '#f8f9fa', padding: '20px', borderRadius: '8px', marginBottom: '30px', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: '200px' }}>
-          <label>Amount (₹ or $):</label>
-          <input 
-            type="number" 
-            value={amount} 
-            onChange={(e) => setAmount(Number(e.target.value))} 
-            required 
-            style={{ width: '100%', padding: '10px', marginTop: '5px' }}
-          />
+      <form onSubmit={handleGetAdvice} className="glass-card" style={{ padding: 24, marginBottom: 28, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, alignItems: 'end' }}>
+        <div className="form-group">
+          <label className="form-label">Amount (₹)</label>
+          <input type="number" className="form-input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} required />
         </div>
-
-        <div style={{ flex: 1, minWidth: '200px' }}>
-          <label>Time Horizon:</label>
-          <select 
-            value={timePeriod} 
-            onChange={(e) => setTimePeriod(e.target.value)}
-            style={{ width: '100%', padding: '10px', marginTop: '5px' }}
-          >
+        <div className="form-group">
+          <label className="form-label">Time horizon</label>
+          <select className="form-select" value={timePeriod} onChange={(e) => setTimePeriod(e.target.value)}>
             <option value="1">1 Year</option>
             <option value="3">3 Years</option>
             <option value="5">5 Years</option>
             <option value="10">10 Years</option>
-            <option value="none">No Fixed Limit (Long Term)</option>
+            <option value="none">Long term (flexible)</option>
           </select>
         </div>
-
-        <div style={{ flex: 1, minWidth: '200px' }}>
-          <label>Investment Type:</label>
-          <select 
-            value={isMonthly} 
-            onChange={(e) => setIsMonthly(e.target.value === 'true')}
-            style={{ width: '100%', padding: '10px', marginTop: '5px' }}
-          >
-            <option value="false">Lump Sum (One Time)</option>
-            <option value="true">SIP (Monthly Installment)</option>
+        <div className="form-group">
+          <label className="form-label">Investment style</label>
+          <select className="form-select" value={isMonthly} onChange={(e) => setIsMonthly(e.target.value === 'true')}>
+            <option value="false">Lump sum</option>
+            <option value="true">SIP (monthly)</option>
           </select>
         </div>
-
-        <button type="submit" style={{ width: '100%', padding: '12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}>
-          {loading ? "Calculating..." : "Generate Wealth Plan"}
+        <button type="submit" className={`btn btn-primary${loading ? ' btn-loading' : ''}`} disabled={loading} style={{ gridColumn: '1 / -1' }}>
+          {!loading && 'Generate Wealth Plan'}
         </button>
       </form>
 
-      {/* --- THE SCOREBOARD --- */}
       {results && (
-        <div>
-          <h2>Your Scoreboard</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h2 style={{ fontSize: '1.35rem' }}>Your Scoreboard</h2>
           {results.scoreboard.map((item, index) => (
-            <div 
-              key={item.id} 
-              style={{ 
-                border: '1px solid #ddd', 
-                borderRadius: '8px', 
-                padding: '20px', 
-                marginBottom: '15px',
-                background: index === 0 ? '#f0fbff' : 'white', // Highlight the #1 recommendation
-                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+            <div
+              key={item.id}
+              className="glass-card"
+              style={{
+                padding: 24,
+                borderColor: index === 0 ? 'rgba(212, 175, 55, 0.45)' : undefined,
+                animation: `fadeIn 0.4s ease ${index * 0.08}s both`,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <h3 style={{ margin: '0 0 10px 0' }}>
-                    #{index + 1} - {item.name}
-                  </h3>
-                  <p style={{ margin: '0 0 10px 0', color: '#555' }}>{item.description}</p>
-                  
-                  {/* METRICS */}
-                  <div style={{ display: 'flex', gap: '15px', fontSize: '14px', flexWrap: 'wrap' }}>
-                    <span style={{ background: '#eee', padding: '4px 8px', borderRadius: '4px' }}>
-                      <strong>Risk:</strong> <span style={{ color: getRiskColor(item.risk) }}>{item.risk}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 240 }}>
+                  <div style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, marginBottom: 4 }}>#{index + 1} RANKED</div>
+                  <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem' }}>{item.name}</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 14px' }}>{item.description}</p>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <span className="badge badge-neutral">
+                      Risk: <span style={{ color: riskClass(item.risk) }}>{item.risk}</span>
                     </span>
-                    <span style={{ background: '#eee', padding: '4px 8px', borderRadius: '4px' }}>
-                      <strong>Invested:</strong> ${item.total_invested.toLocaleString()}
+                    <span className="badge badge-neutral">
+                      Return band: {item.return_min}% – {item.return_max}% p.a.
                     </span>
-                    <span style={{ background: '#e6f7ff', padding: '4px 8px', borderRadius: '4px', color: '#0050b3' }}>
-                      <strong>Projected Value:</strong> ${item.projected_total.toLocaleString()}
+                    <span className="badge badge-neutral">
+                      Invested: ₹{item.total_invested.toLocaleString()}
                     </span>
-                    <span style={{ background: '#f6ffed', padding: '4px 8px', borderRadius: '4px', color: '#389e0d' }}>
-                      <strong>Est. Profit:</strong> +${item.projected_profit.toLocaleString()}
-                    </span>
+                  </div>
+
+                  <div style={{ marginTop: 14, padding: 14, background: 'rgba(212, 175, 55, 0.06)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>PROJECTED VALUE (MIN – MAX)</div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', color: 'var(--gold-light)' }}>
+                      ₹{item.projected_total_min.toLocaleString()} – ₹{item.projected_total_max.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--green)', marginTop: 6 }}>
+                      Profit: +₹{item.projected_profit_min.toLocaleString()} – +₹{item.projected_profit_max.toLocaleString()}
+                    </div>
                   </div>
                 </div>
 
-                {/* SUITABILITY SCORE BADGE */}
-                <div style={{ textAlign: 'center', background: item.suitability_score > 70 ? '#52c41a' : (item.suitability_score > 40 ? '#faad14' : '#ff4d4f'), color: 'white', padding: '10px', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: '50%',
+                  background: item.suitability_score > 70 ? 'linear-gradient(135deg, var(--gold-light), var(--gold))' : 'rgba(255,255,255,0.08)',
+                  color: item.suitability_score > 70 ? '#1a1408' : 'var(--text-primary)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, fontSize: 18, flexShrink: 0,
+                  boxShadow: item.suitability_score > 70 ? 'var(--shadow-gold)' : 'none',
+                }}>
                   {item.suitability_score}
                 </div>
               </div>
 
-              {/* --- DRILL DOWN BUTTON --- */}
-              <button 
-                onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                style={{ marginTop: '15px', background: 'none', border: 'none', color: '#1890ff', cursor: 'pointer', padding: 0, fontSize: '14px' }}
-              >
-                {expandedId === item.id ? "▼ Hide Options" : "▶ View Specific Options"}
+              <button type="button" className="btn btn-ghost" onClick={() => setExpandedId(expandedId === item.id ? null : item.id)} style={{ marginTop: 12 }}>
+                {expandedId === item.id ? '▼ Hide top 5 options' : '▶ Top 5 picks (current rates)'}
               </button>
 
-              {/* --- DRILL DOWN CONTENT --- */}
               {expandedId === item.id && (
-                <div style={{ marginTop: '15px', padding: '15px', background: '#fafafa', borderTop: '1px solid #ddd' }}>
-                  <h4>Available Options:</h4>
-                  <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                    {item.specific_options.map((opt, i) => (
-                      <li key={i} style={{ marginBottom: '8px' }}>
-                        <strong>{opt.name}</strong> — {opt.rate}% Expected ROI
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <ul style={{ margin: '12px 0 0', padding: 0, listStyle: 'none' }}>
+                  {item.specific_options.map((opt, i) => (
+                    <li key={i} style={{
+                      padding: '12px 14px',
+                      borderBottom: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}>
+                      <span>{opt.name}</span>
+                      <strong style={{ color: 'var(--gold-light)' }}>{opt.rate}%</strong>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           ))}
